@@ -9,6 +9,7 @@ import com.example.minidb.engine.DatabaseEngine;
 import com.example.minidb.engine.TableEngine;
 import com.example.minidb.model.Table;
 import com.example.minidb.service.RowService;
+import com.example.minidb.transaction.TransactionManager;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -28,21 +29,36 @@ public class RowController {
     private final RowService rowService;
     private final DatabaseEngine databaseEngine;
     private final TableEngine tableEngine;
+    private final TransactionManager transactionManager;
 
-    public RowController(RowService rowService, DatabaseEngine databaseEngine, TableEngine tableEngine) {
+    public RowController(RowService rowService, DatabaseEngine databaseEngine, TableEngine tableEngine,
+                          TransactionManager transactionManager) {
         this.rowService = rowService;
         this.databaseEngine = databaseEngine;
         this.tableEngine = tableEngine;
+        this.transactionManager = transactionManager;
     }
+
+    /**
+     * Every row endpoint below takes an optional {@code transactionId} query
+     * param. Omit it and the request hits the table's live data straight
+     * away, exactly as before. Pass the id returned by
+     * {@code POST .../transactions} and the request is redirected to that
+     * transaction's private staging file instead -- nothing lands in the
+     * live file until that transaction is committed (see
+     * TransactionController).
+     */
 
     @PostMapping("/{databaseName}/tables/{tableName}/rows")
     public ResponseEntity<Map<String, Object>> insertRow(@PathVariable String databaseName,
                                                   @PathVariable String tableName,
+                                                  @RequestParam(required = false) String transactionId,
                                                   @RequestBody Map<String, Object> row) throws IOException {
         Path databasePath = databaseEngine.getDatabasePath(databaseName);
         Table table = tableEngine.getTable(databasePath, tableName);
         Path tablePath = databasePath.resolve(tableName);
-        rowService.insertRow(tablePath, row, table);
+        Path dataFile = transactionManager.resolveDataFile(databaseName, tableName, tablePath, transactionId);
+        rowService.insertRow(dataFile, row, table);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("message", "Row inserted successfully"));
     }
 
@@ -51,45 +67,57 @@ public class RowController {
                                             @PathVariable String tableName,
                                             @RequestParam(required = false) String column,
                                             @RequestParam(required = false) String operator,
-                                            @RequestParam(required = false) String value) throws IOException {
+                                            @RequestParam(required = false) String value,
+                                            @RequestParam(required = false) String transactionId) throws IOException {
         Path databasePath = databaseEngine.getDatabasePath(databaseName);
         Table table = tableEngine.getTable(databasePath, tableName);
+        Path tablePath = databasePath.resolve(tableName);
+        Path dataFile = transactionManager.resolveDataFile(databaseName, tableName, tablePath, transactionId);
         if (column != null && operator != null && value != null) {
-            return rowService.filterRows(databasePath.resolve(tableName), column, operator, parseValue(value), table);
+            return rowService.filterRows(dataFile, column, operator, parseValue(value), table);
         }
-        return rowService.getRows(databasePath.resolve(tableName));
+        return rowService.getRows(dataFile);
     }
 
     @GetMapping("/{databaseName}/tables/{tableName}/rows/{id}")
     public Map<String, Object> getRowById(@PathVariable String databaseName,
                                          @PathVariable String tableName,
-                                         @PathVariable String id) throws IOException {
+                                         @PathVariable String id,
+                                         @RequestParam(required = false) String transactionId) throws IOException {
         Path databasePath = databaseEngine.getDatabasePath(databaseName);
         Table table = tableEngine.getTable(databasePath, tableName);
+        Path tablePath = databasePath.resolve(tableName);
+        Path dataFile = transactionManager.resolveDataFile(databaseName, tableName, tablePath, transactionId);
         Object idValue = rowService.parseIdValue(table, id);
-        return rowService.getRowById(databasePath.resolve(tableName), table, idValue);
+        return rowService.getRowById(dataFile, table, idValue);
     }
 
     @PutMapping("/{databaseName}/tables/{tableName}/rows/{id}")
     public Map<String, Object> updateRow(@PathVariable String databaseName,
                                         @PathVariable String tableName,
                                         @PathVariable String id,
+                                        @RequestParam(required = false) String transactionId,
                                         @RequestBody Map<String, Object> row) throws IOException {
         Path databasePath = databaseEngine.getDatabasePath(databaseName);
         Table table = tableEngine.getTable(databasePath, tableName);
+        Path tablePath = databasePath.resolve(tableName);
+        Path dataFile = transactionManager.resolveDataFile(databaseName, tableName, tablePath, transactionId);
         Object idValue = rowService.parseIdValue(table, id);
-        rowService.updateRow(databasePath.resolve(tableName), idValue, row, table);
+        rowService.updateRow(dataFile, idValue, row, table);
         return Map.of("message", "Row updated successfully");
     }
 
     @DeleteMapping("/{databaseName}/tables/{tableName}/rows/{id}")
     public Map<String, Object> deleteRow(@PathVariable String databaseName,
                                         @PathVariable String tableName,
-                                        @PathVariable String id) throws IOException {
+                                        @PathVariable String id,
+                                        @RequestParam(required = false) String transactionId) throws IOException {
         Path databasePath = databaseEngine.getDatabasePath(databaseName);
         Table table = tableEngine.getTable(databasePath, tableName);
+        Path tablePath = databasePath.resolve(tableName);
+        Path dataFile = transactionManager.resolveDataFile(databaseName, tableName, tablePath, transactionId);
         Object idValue = rowService.parseIdValue(table, id);
-        rowService.deleteRow(databasePath.resolve(tableName), table, idValue);
+        rowService.deleteRow(dataFile, table, idValue);
         return Map.of("message", "Row deleted successfully");
     }
 

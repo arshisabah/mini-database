@@ -28,34 +28,43 @@ public class RowService {
         this.queryEngine = queryEngine;
     }
 
-    public void insertRow(Path tablePath, Map<String, Object> row, Table table) throws IOException {
+    /**
+     * Every method below takes {@code dataFile} -- the exact file to read or
+     * write. The caller (RowController) resolves that path via
+     * TransactionManager: the table's live data.dat when no transaction id
+     * was supplied, or a transaction's private staging file when one was.
+     * RowService stays unaware of transactions; it just acts on whichever
+     * file it's handed, which is what makes staged changes invisible to
+     * everyone else until commit.
+     */
+    public void insertRow(Path dataFile, Map<String, Object> row, Table table) throws IOException {
         dataValidator.validateRecord(row, table);
-        checkPrimaryKeyDuplication(tablePath, row, table);
-        recordStorage.insertRow(tablePath, row, table);
+        checkPrimaryKeyDuplication(dataFile, row, table);
+        recordStorage.insertRow(dataFile, row, table);
     }
 
-    public List<Map<String, Object>> getRows(Path tablePath) throws IOException {
-        return recordStorage.readRows(tablePath);
+    public List<Map<String, Object>> getRows(Path dataFile) throws IOException {
+        return recordStorage.readRows(dataFile);
     }
 
-    public Map<String, Object> getRowById(Path tablePath, Table table, Object id) throws IOException {
-        return recordStorage.readRowById(tablePath, table, id);
+    public Map<String, Object> getRowById(Path dataFile, Table table, Object id) throws IOException {
+        return recordStorage.readRowById(dataFile, table, id);
     }
 
-    public void updateRow(Path tablePath, Object id, Map<String, Object> row, Table table) throws IOException {
+    public void updateRow(Path dataFile, Object id, Map<String, Object> row, Table table) throws IOException {
         dataValidator.validatePartialRecord(row, table);
         Column pk = findPrimaryKey(table);
         if (row.containsKey(pk.getName()) && !id.equals(row.get(pk.getName()))) {
             throw new IllegalArgumentException("Primary key '" + pk.getName() + "' in payload does not match route ID.");
         }
-        Map<String, Object> currentRow = recordStorage.readRowById(tablePath, table, id);
+        Map<String, Object> currentRow = recordStorage.readRowById(dataFile, table, id);
         Map<String, Object> merged = new HashMap<>(currentRow);
         merged.putAll(row);
-        recordStorage.updateRow(tablePath, table, id, merged);
+        recordStorage.updateRow(dataFile, table, id, merged);
     }
 
-    public void deleteRow(Path tablePath, Table table, Object id) throws IOException {
-        recordStorage.deleteRow(tablePath, table, id);
+    public void deleteRow(Path dataFile, Table table, Object id) throws IOException {
+        recordStorage.deleteRow(dataFile, table, id);
     }
 
     /**
@@ -86,7 +95,7 @@ public class RowService {
         return rawId;
     }
 
-    public List<Map<String, Object>> filterRows(Path tablePath, String column, String operator, Object value, Table table) throws IOException {
+    public List<Map<String, Object>> filterRows(Path dataFile, String column, String operator, Object value, Table table) throws IOException {
         if (table == null) {
             throw new IllegalArgumentException("Table metadata is required for filtering.");
         }
@@ -94,18 +103,18 @@ public class RowService {
         if (!knownColumn) {
             throw new IllegalArgumentException("Unknown column: '" + column + "'.");
         }
-        return recordStorage.filterRows(tablePath, column, operator, value);
+        return recordStorage.filterRows(dataFile, column, operator, value);
     }
 
     public List<Map<String, Object>> query(Path tablePath, String tableName, String query) throws IOException {
         return queryEngine.parseSelectQuery(tablePath, tableName, query);
     }
 
-    private void checkPrimaryKeyDuplication(Path tablePath, Map<String, Object> row, Table table) throws IOException {
+    private void checkPrimaryKeyDuplication(Path dataFile, Map<String, Object> row, Table table) throws IOException {
         Column pk = findPrimaryKey(table);
 
         Object pkValue = row.get(pk.getName());
-        for (Map<String, Object> existingRow : recordStorage.readRows(tablePath)) {
+        for (Map<String, Object> existingRow : recordStorage.readRows(dataFile)) {
             if (existingRow.containsKey(pk.getName()) && existingRow.get(pk.getName()).equals(pkValue)) {
                 throw new DuplicateKeyException("Duplicate primary key value: " + pkValue);
             }

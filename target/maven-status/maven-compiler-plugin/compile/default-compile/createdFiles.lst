@@ -5,10 +5,13 @@ com\example\minidb\storage\FileStorage.class
 com\example\minidb\storage\TableStorage.class
 com\example\minidb\engine\TableEngine.class
 com\example\minidb\exception\DuplicateKeyException.class
+com\example\minidb\transaction\TransactionManager.class
 com\example\minidb\exception\RecordNotFoundException.class
 com\example\minidb\engine\DatabaseEngine.class
 com\example\minidb\dto\CreateDatabaseRequest.class
+com\example\minidb\exception\TransactionNotFoundException.class
 com\example\minidb\config\CorsConfig.class
+com\example\minidb\transaction\Transaction.class
 com\example\minidb\model\Database.class
 com\example\minidb\service\DatabaseService.class
 com\example\minidb\enums\DataType.class
@@ -22,6 +25,7 @@ com\example\minidb\exception\GlobalExceptionHandler.class
 com\example\minidb\controller\TableController.class
 com\example\minidb\dto\ColumnRequest.class
 com\example\minidb\model\Table.class
+com\example\minidb\controller\TransactionController.class
 com\example\minidb\storage\RecordStorage.class
 com\example\minidb\storage\DatabaseStorage.class
 com\example\minidb\service\RowService.class

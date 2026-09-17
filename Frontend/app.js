@@ -135,12 +135,21 @@ const Api = {
   getRows: (db, table) => api(`/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/rows`),
   filterRows: (db, table, column, operator, value) =>
     api(`/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/rows?column=${encodeURIComponent(column)}&operator=${encodeURIComponent(operator)}&value=${encodeURIComponent(value)}`),
-  insertRow: (db, table, row) => api(`/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/rows`, { method: 'POST', body: JSON.stringify(row) }),
-  updateRow: (db, table, id, row) => api(`/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/rows/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(row) }),
-  deleteRow: (db, table, id) => api(`/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/rows/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  insertRow: (db, table, row, txId) => api(`/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/rows${txQuery(txId)}`, { method: 'POST', body: JSON.stringify(row) }),
+  updateRow: (db, table, id, row, txId) => api(`/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/rows/${encodeURIComponent(id)}${txQuery(txId)}`, { method: 'PUT', body: JSON.stringify(row) }),
+  deleteRow: (db, table, id, txId) => api(`/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/rows/${encodeURIComponent(id)}${txQuery(txId)}`, { method: 'DELETE' }),
 
   runQuery: (db, query) => api(`/databases/${encodeURIComponent(db)}/query`, { method: 'POST', body: JSON.stringify({ query }) }),
+
+  // Real, server-side transactions — see commitChanges()/rollbackChanges().
+  beginTransaction: (db, table) => api(`/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/transactions`, { method: 'POST' }),
+  commitTransaction: (db, table, txId) => api(`/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/transactions/${encodeURIComponent(txId)}/commit`, { method: 'POST' }),
+  rollbackTransaction: (db, table, txId) => api(`/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/transactions/${encodeURIComponent(txId)}/rollback`, { method: 'POST' }),
 };
+
+function txQuery(txId) {
+  return txId ? `?transactionId=${encodeURIComponent(txId)}` : '';
+}
 
 // ===========================================================
 // Connection
@@ -662,13 +671,23 @@ function openRowModal(existingRow) {
 // ===========================================================
 // Commit / rollback
 //
-// MiniDB itself has no transaction log — there is no server-side "commit"
-// or "rollback" endpoint. This is a client-side staging area: adds, edits
-// and deletes are held in memory and only sent to the API when you commit.
-// Because the underlying engine writes each request independently, a
-// commit is NOT atomic — if one staged change fails partway through, the
-// changes before it have already been saved, and you'll get a toast per
-// failure so you know exactly which ones didn't go through.
+// Adds, edits and deletes are staged locally first (state.pending) so the
+// grid feels instant and Rollback before you've committed is free — no
+// server round trip needed, since nothing has been sent yet.
+//
+// Committing now uses MiniDB's real server-side transactions instead of
+// firing each staged change at the live rows directly:
+//   1. begin a transaction for this table (POST .../transactions)
+//   2. replay every staged insert/update/delete against it, tagged with
+//      its transactionId — these land in a private staging file, not the
+//      live one
+//   3. if every staged change applied cleanly, commit the transaction —
+//      one atomic swap makes them all visible at once
+//   4. if ANY staged change failed, roll the transaction back instead —
+//      the live table is left exactly as it was, and your local pending
+//      changes are kept so you can fix the problem and try again
+// This is what makes commit atomic: partial failures can no longer leave
+// the live table half-updated.
 // ===========================================================
 
 async function commitChanges() {
@@ -677,29 +696,56 @@ async function commitChanges() {
   const total = pendingCount();
   if (!total) return;
 
+  commitBtn.disabled = true;
+  rollbackBtn.disabled = true;
+
+  let txId;
+  try {
+    const begun = await Api.beginTransaction(db, table);
+    txId = begun.transactionId;
+  } catch (err) {
+    toast('error', `Could not start transaction: ${err.message}`);
+    commitBtn.disabled = false;
+    rollbackBtn.disabled = false;
+    return;
+  }
+
   const failures = [];
 
   for (const row of inserts) {
-    try { await Api.insertRow(db, table, row); }
+    try { await Api.insertRow(db, table, row, txId); }
     catch (err) { failures.push(`Insert failed: ${err.message}`); }
   }
   for (const [key, changes] of Object.entries(updates)) {
     if (deletes.has(key)) continue; // superseded by a staged delete below
-    try { await Api.updateRow(db, table, key, changes); }
+    try { await Api.updateRow(db, table, key, changes, txId); }
     catch (err) { failures.push(`Update of "${key}" failed: ${err.message}`); }
   }
   for (const key of deletes) {
-    try { await Api.deleteRow(db, table, key); }
+    try { await Api.deleteRow(db, table, key, txId); }
     catch (err) { failures.push(`Delete of "${key}" failed: ${err.message}`); }
   }
 
   if (failures.length) {
-    toast('error', `${failures.length} of ${total} change(s) could not be saved.`);
+    try { await Api.rollbackTransaction(db, table, txId); }
+    catch (err) { /* transaction will simply sit unresolved server-side */ }
+    toast('error', `${failures.length} of ${total} change(s) failed — nothing was saved.`);
     failures.forEach(msg => toast('error', msg));
-  } else {
-    toast('success', `${total} change${total === 1 ? '' : 's'} committed.`);
+    commitBtn.disabled = false;
+    rollbackBtn.disabled = false;
+    return; // keep the staged changes so the user can fix and retry
   }
-  await loadRows(); // reloads baseRows from the server and clears pending state
+
+  try {
+    await Api.commitTransaction(db, table, txId);
+    toast('success', `${total} change${total === 1 ? '' : 's'} committed.`);
+    await loadRows(); // reloads baseRows from the server and clears pending state
+  } catch (err) {
+    toast('error', `Changes were staged but the commit itself failed: ${err.message}`);
+  } finally {
+    commitBtn.disabled = false;
+    rollbackBtn.disabled = false;
+  }
 }
 
 function rollbackChanges() {

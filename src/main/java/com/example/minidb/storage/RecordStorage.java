@@ -16,14 +16,23 @@ import com.example.minidb.model.Table;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 
+/**
+ * Reads and writes rows to a specific data file.
+ *
+ * Every method takes the exact {@code dataFile} to operate on rather than
+ * assuming "the table's live data.dat" -- callers (RowService, via
+ * TransactionManager) decide whether that's the live file or a
+ * transaction's private working copy. RecordStorage itself has no idea
+ * transactions exist; it just reads/writes whichever file it's handed.
+ */
 @Component
 public class RecordStorage {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final FileStorage fileStorage = new FileStorage();
 
-    public void insertRow(Path tablePath, Map<String, Object> row, Table table) throws IOException {
-        List<Map<String, Object>> existingRows = readRows(tablePath);
+    public void insertRow(Path dataFile, Map<String, Object> row, Table table) throws IOException {
+        List<Map<String, Object>> existingRows = readRows(dataFile);
         Column pkColumn = findPrimaryKey(table);
         Object pkValue = row.get(pkColumn.getName());
         for (Map<String, Object> existingRow : existingRows) {
@@ -32,11 +41,10 @@ public class RecordStorage {
             }
         }
         existingRows.add(row);
-        writeRows(tablePath, existingRows);
+        writeRows(dataFile, existingRows);
     }
 
-    public List<Map<String, Object>> readRows(Path tablePath) throws IOException {
-        Path dataFile = tablePath.resolve("data.dat");
+    public List<Map<String, Object>> readRows(Path dataFile) throws IOException {
         if (!Files.exists(dataFile)) {
             return new ArrayList<>();
         }
@@ -52,9 +60,9 @@ public class RecordStorage {
         return rows;
     }
 
-    public Map<String, Object> readRowById(Path tablePath, Table table, Object id) throws IOException {
+    public Map<String, Object> readRowById(Path dataFile, Table table, Object id) throws IOException {
         Column pkColumn = findPrimaryKey(table);
-        List<Map<String, Object>> rows = readRows(tablePath);
+        List<Map<String, Object>> rows = readRows(dataFile);
         for (Map<String, Object> row : rows) {
             if (Objects.equals(row.get(pkColumn.getName()), id)) {
                 return row;
@@ -63,9 +71,9 @@ public class RecordStorage {
         throw new RecordNotFoundException("Record with " + pkColumn.getName() + " '" + id + "' not found");
     }
 
-    public void updateRow(Path tablePath, Table table, Object id, Map<String, Object> updatedRow) throws IOException {
+    public void updateRow(Path dataFile, Table table, Object id, Map<String, Object> updatedRow) throws IOException {
         Column pkColumn = findPrimaryKey(table);
-        List<Map<String, Object>> rows = readRows(tablePath);
+        List<Map<String, Object>> rows = readRows(dataFile);
         boolean found = false;
         for (int i = 0; i < rows.size(); i++) {
             Map<String, Object> row = rows.get(i);
@@ -80,12 +88,12 @@ public class RecordStorage {
         if (!found) {
             throw new RecordNotFoundException("Record with " + pkColumn.getName() + " '" + id + "' not found");
         }
-        writeRows(tablePath, rows);
+        writeRows(dataFile, rows);
     }
 
-    public void deleteRow(Path tablePath, Table table, Object id) throws IOException {
+    public void deleteRow(Path dataFile, Table table, Object id) throws IOException {
         Column pkColumn = findPrimaryKey(table);
-        List<Map<String, Object>> rows = readRows(tablePath);
+        List<Map<String, Object>> rows = readRows(dataFile);
         List<Map<String, Object>> updated = new ArrayList<>();
         boolean found = false;
         for (Map<String, Object> row : rows) {
@@ -98,21 +106,21 @@ public class RecordStorage {
         if (!found) {
             throw new RecordNotFoundException("Record with " + pkColumn.getName() + " '" + id + "' not found");
         }
-        writeRows(tablePath, updated);
+        writeRows(dataFile, updated);
     }
 
-    public void writeRows(Path tablePath, List<Map<String, Object>> rows) throws IOException {
-        Path tempFile = tablePath.resolve("data.dat.tmp");
+    public void writeRows(Path dataFile, List<Map<String, Object>> rows) throws IOException {
+        Path tempFile = dataFile.resolveSibling(dataFile.getFileName().toString() + ".tmp");
         StringBuilder content = new StringBuilder();
         for (Map<String, Object> row : rows) {
             content.append(objectMapper.writeValueAsString(row)).append(System.lineSeparator());
         }
         fileStorage.writeText(tempFile, content.toString());
-        Files.move(tempFile, tablePath.resolve("data.dat"), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        Files.move(tempFile, dataFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
     }
 
-    public List<Map<String, Object>> filterRows(Path tablePath, String column, String operator, Object value) throws IOException {
-        List<Map<String, Object>> rows = readRows(tablePath);
+    public List<Map<String, Object>> filterRows(Path dataFile, String column, String operator, Object value) throws IOException {
+        List<Map<String, Object>> rows = readRows(dataFile);
         List<Map<String, Object>> filtered = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             Object actualValue = row.get(column);
@@ -123,6 +131,9 @@ public class RecordStorage {
             switch (operator) {
                 case "EQ":
                     match = Objects.equals(actualValue, value);
+                    break;
+                case "NEQ":
+                    match = !Objects.equals(actualValue, value);
                     break;
                 case "GT":
                     match = compare(actualValue, value) > 0;

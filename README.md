@@ -143,6 +143,27 @@ Example row insert:
 }
 ```
 
+### Transaction endpoints (commit / rollback)
+
+```http
+POST /api/databases/{databaseName}/tables/{tableName}/transactions
+GET /api/databases/{databaseName}/tables/{tableName}/transactions/{transactionId}
+POST /api/databases/{databaseName}/tables/{tableName}/transactions/{transactionId}/commit
+POST /api/databases/{databaseName}/tables/{tableName}/transactions/{transactionId}/rollback
+```
+
+Begin a transaction to get a `transactionId`, then pass it as a query param
+on any row insert/update/delete/read for that table:
+
+```http
+POST /api/databases/college/tables/students/rows?transactionId=<id>
+```
+
+Those requests only touch a private staging copy of the table's data —
+nothing changes in the live table until you `commit`. `rollback` discards
+the staging copy instead, leaving the live table exactly as it was. See
+`TransactionManager` for how staging and the atomic commit swap work.
+
 ### Filter example
 
 ```http
@@ -152,10 +173,25 @@ GET /api/databases/college/tables/students/rows?column=age&operator=GT&value=20
 Supported operators:
 
 - EQ
+- NEQ
 - GT
 - LT
 - GTE
 - LTE
+
+### Query console
+
+```http
+POST /api/databases/college/query
+{ "query": "SELECT * FROM students WHERE age > 20" }
+```
+
+The `WHERE` clause accepts standard MySQL-style comparison operators
+directly — `=`, `!=`, `<>`, `>`, `<`, `>=`, `<=` — with spaces around the
+operator optional, e.g. `age>20` works the same as `age > 20`. String
+values can be bare, single-quoted, or double-quoted:
+`department = CSE`, `department = 'CSE'`, and `department = "CSE"` are all
+equivalent. Only one condition is supported (no `AND`/`OR`).
 
 ## Persistence behavior
 
@@ -184,10 +220,14 @@ MiniDB validates:
 This is a simplified educational database engine. It intentionally does not include:
 
 - SQL joins
-- transactions
 - indexes
 - advanced query optimization
 - external database systems
+
+It does include a lightweight, table-scoped commit/rollback mechanism (see
+"Transaction endpoints" above) — not full ACID transactions with isolation
+levels or cross-table atomicity, but a real staging-file-then-atomic-swap
+model, not just a client-side illusion.
 
 It is designed to help beginners understand how a real database engine can use files, metadata, and validation to manage stored records.
 
