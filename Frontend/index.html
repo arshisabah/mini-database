@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiniDB Console</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Top bar: connection -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">⌗</span>
+      <span class="brand-name">MiniDB</span>
+      <span class="brand-sub">console</span>
+    </div>
+
+    <div class="conn">
+      <label class="conn-label" for="baseUrl">Server</label>
+      <input id="baseUrl" class="conn-input" type="text" spellcheck="false" value="http://localhost:8080/api">
+      <button id="connectBtn" class="btn btn-ghost">Connect</button>
+      <span class="conn-status" id="connStatus">
+        <span class="dot" id="connDot"></span>
+        <span id="connText">Not connected</span>
+      </span>
+    </div>
+  </header>
+
+  <div class="body">
+
+    <!-- Sidebar: databases -->
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <h2>Databases</h2>
+        <button id="newDbBtn" class="btn btn-icon" title="New database">+</button>
+      </div>
+      <ul class="db-list" id="dbList">
+        <li class="empty-hint">Connect to load databases.</li>
+      </ul>
+    </aside>
+
+    <!-- Main content -->
+    <main class="main">
+
+      <!-- Empty state -->
+      <section id="emptyState" class="panel empty-state">
+        <p class="empty-title">No database selected</p>
+        <p class="empty-copy">Pick a database on the left, or create a new one, to browse its tables and rows.</p>
+      </section>
+
+      <!-- Database view: tables list + table detail -->
+      <div id="dbView" class="hidden">
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow" id="dbPathLabel">database</p>
+              <h2 id="dbNameHeading">—</h2>
+            </div>
+            <div class="panel-actions">
+              <button id="newTableBtn" class="btn btn-primary">New table</button>
+              <button id="deleteDbBtn" class="btn btn-danger-ghost">Delete database</button>
+            </div>
+          </div>
+
+          <nav class="table-tabs" id="tableTabs">
+            <span class="empty-hint">No tables yet.</span>
+          </nav>
+        </section>
+
+        <!-- Table detail -->
+        <section id="tableView" class="panel hidden">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">table</p>
+              <h2 id="tableNameHeading">—</h2>
+              <div class="schema-chips" id="schemaChips"></div>
+            </div>
+            <div class="panel-actions">
+              <button id="addRowBtn" class="btn btn-primary">Add row</button>
+              <button id="deleteTableBtn" class="btn btn-danger-ghost">Delete table</button>
+            </div>
+          </div>
+
+          <div class="pending-bar hidden" id="pendingBar">
+            <span class="pending-label" id="pendingLabel">0 pending changes</span>
+            <span class="pending-note">Nothing is sent to the server until you commit.</span>
+            <div class="pending-actions">
+              <button id="rollbackBtn" class="btn btn-secondary btn-sm">Rollback</button>
+              <button id="commitBtn" class="btn btn-primary btn-sm">Commit</button>
+            </div>
+          </div>
+
+          <div class="filter-bar">
+            <select id="filterColumn" class="input select"></select>
+            <select id="filterOperator" class="input select">
+              <option value="EQ">= equals</option>
+              <option value="GT">&gt; greater than</option>
+              <option value="LT">&lt; less than</option>
+              <option value="GTE">&ge; greater or equal</option>
+              <option value="LTE">&le; less or equal</option>
+            </select>
+            <input id="filterValue" class="input" type="text" placeholder="value">
+            <button id="applyFilterBtn" class="btn btn-secondary">Filter</button>
+            <button id="clearFilterBtn" class="btn btn-ghost">Clear</button>
+            <span class="row-count" id="rowCount"></span>
+          </div>
+
+          <div class="grid-wrap">
+            <table class="grid" id="rowsGrid">
+              <thead><tr id="rowsHead"></tr></thead>
+              <tbody id="rowsBody"></tbody>
+            </table>
+            <p class="empty-hint" id="rowsEmptyHint" style="display:none;">No rows match. Add one above or clear the filter.</p>
+          </div>
+        </section>
+
+        <!-- Query console -->
+        <section id="queryView" class="panel hidden">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">query console</p>
+              <h2>Run a query</h2>
+            </div>
+          </div>
+          <p class="query-hint">Supports <code>SELECT * FROM &lt;table&gt; WHERE &lt;column&gt; &lt;OP&gt; &lt;value&gt;</code>, where OP is one of EQ, GT, LT, GTE, LTE. The WHERE clause is optional.</p>
+          <div class="query-bar">
+            <input id="queryInput" class="input query-input" type="text" spellcheck="false">
+            <button id="runQueryBtn" class="btn btn-primary">Run</button>
+          </div>
+          <div class="grid-wrap">
+            <table class="grid" id="queryGrid">
+              <thead><tr id="queryHead"></tr></thead>
+              <tbody id="queryBody"></tbody>
+            </table>
+            <p class="empty-hint" id="queryEmptyHint" style="display:none;">No results yet.</p>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- Toasts -->
+<div id="toastStack" class="toast-stack" aria-live="polite"></div>
+
+<!-- Modal root -->
+<div id="modalRoot" class="modal-root hidden">
+  <div class="modal-backdrop" id="modalBackdrop"></div>
+  <div class="modal" id="modal" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <h3 id="modalTitle">Title</h3>
+      <button class="modal-close" id="modalClose" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

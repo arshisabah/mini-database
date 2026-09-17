@@ -1,0 +1,1 @@
+{"name":"students","columns":[{"name":"id","dataType":"INT","primaryKey":true},{"name":"name","dataType":"VARCHAR","primaryKey":false},{"name":"age","dataType":"INT","primaryKey":false},{"name":"department","dataType":"VARCHAR","primaryKey":false}]}

@@ -1,0 +1,1 @@
+{"name":"products","columns":[{"name":"id","dataType":"INT","primaryKey":true},{"name":"name","dataType":"VARCHAR","primaryKey":false},{"name":"price","dataType":"DOUBLE","primaryKey":false},{"name":"in_stock","dataType":"BOOLEAN","primaryKey":false},{"name":"added_on","dataType":"DATE","primaryKey":false}]}
