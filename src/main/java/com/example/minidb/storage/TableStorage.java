@@ -56,6 +56,11 @@ public class TableStorage {
         return fileStorage.readText(tablePath.resolve("table.meta"));
     }
 
+    /** Overwrites table.meta with the given schema -- used by ALTER TABLE. */
+    public void writeTableMeta(Path tablePath, com.example.minidb.model.Table table) throws IOException {
+        fileStorage.writeText(tablePath.resolve("table.meta"), objectMapper.writeValueAsString(table));
+    }
+
     public void deleteTable(Path databasePath, String tableName) throws IOException {
         Path tablePath = getTablePath(databasePath, tableName);
         fileStorage.deleteDirectory(tablePath);

@@ -1,0 +1,13 @@
+{
+  "//": "Live Server watches the whole workspace by default. MiniDB's backend writes to minidb-data/ on every database/table/row operation, and Maven writes to target/ on every build -- without these ignores, Live Server treats each of those as a workspace change and force-reloads the page, which looks exactly like the frontend losing its connection right after you do something. See README.md's 'Frontend disconnects after every operation' note. Restart Live Server (stop, then Go Live again) after this file changes -- the ignore list is only read at startup.",
+  "liveServer.settings.ignoreFiles": [
+    ".vscode/**",
+    "**/*.scss",
+    "**/*.sass",
+    "minidb-data/**",
+    "**/minidb-data/**",
+    "target/**",
+    "**/target/**",
+    "**/*.class"
+  ]
+}

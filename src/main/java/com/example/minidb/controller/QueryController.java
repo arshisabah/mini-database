@@ -1,14 +1,9 @@
 package com.example.minidb.controller;
 
 import java.io.IOException;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.Map;
 
 import com.example.minidb.dto.QueryRequest;
-import com.example.minidb.engine.DatabaseEngine;
-import com.example.minidb.engine.TableEngine;
-import com.example.minidb.service.RowService;
+import com.example.minidb.engine.SqlEngine;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -16,61 +11,44 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Exposes the small "SELECT * FROM table [WHERE ...]" query engine over REST.
- * This was previously missing: QueryEngine, QueryRequest and RowService.query()
- * existed but had no controller wiring them to an endpoint, so the feature
- * described in the project guide (POST /api/query) was unreachable.
- *
- * Since MiniDB scopes tables under a database, the endpoint is nested under
- * the database, matching the rest of the API:
+ * Exposes the query console over REST for anything scoped to one database:
+ * SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, DROP TABLE. Everything here
+ * is parsed and executed by SqlEngine, which runs it immediately against
+ * the live data (no staging/commit step -- see TransactionController if you
+ * want that).
  *
  *   POST /api/databases/{databaseName}/query
- *   { "query": "SELECT * FROM students WHERE age GT 20" }
+ *   { "query": "SELECT * FROM students WHERE age > 20" }
+ *   { "query": "INSERT INTO students (id, name, age, department) VALUES (5, 'Meera', 22, 'ECE')" }
+ *   { "query": "UPDATE students SET age = 23 WHERE id = 5" }
+ *   { "query": "DELETE FROM students WHERE id = 5" }
+ *   { "query": "CREATE TABLE staff (id INT PRIMARY KEY, name VARCHAR)" }
+ *   { "query": "DROP TABLE staff" }
+ *
+ * CREATE DATABASE / DROP DATABASE aren't scoped to an existing database, so
+ * they're not accepted here -- see GlobalQueryController's POST /api/query.
+ *
+ * Response shape: a SELECT returns a JSON array of rows, same as before.
+ * Every other statement returns a message object, e.g.
+ * {"message": "...", "rowsAffected": 2}. The frontend distinguishes the two
+ * by checking Array.isArray(...) on the response.
  */
 @RestController
 @RequestMapping("/api/databases")
 public class QueryController {
 
-    private final DatabaseEngine databaseEngine;
-    private final TableEngine tableEngine;
-    private final RowService rowService;
+    private final SqlEngine sqlEngine;
 
-    public QueryController(DatabaseEngine databaseEngine, TableEngine tableEngine, RowService rowService) {
-        this.databaseEngine = databaseEngine;
-        this.tableEngine = tableEngine;
-        this.rowService = rowService;
+    public QueryController(SqlEngine sqlEngine) {
+        this.sqlEngine = sqlEngine;
     }
 
     @PostMapping("/{databaseName}/query")
-    public List<Map<String, Object>> runQuery(@PathVariable String databaseName,
-                                               @RequestBody QueryRequest request) throws IOException {
+    public Object runQuery(@PathVariable String databaseName,
+                            @RequestBody QueryRequest request) throws IOException {
         if (request == null || request.getQuery() == null || request.getQuery().isBlank()) {
             throw new IllegalArgumentException("Query is required.");
         }
-
-        Path databasePath = databaseEngine.getDatabasePath(databaseName);
-        String tableName = extractTableName(request.getQuery());
-
-        // Validates the table exists and has valid metadata (throws TableNotFoundException otherwise).
-        tableEngine.getTable(databasePath, tableName);
-        Path tablePath = databasePath.resolve(tableName);
-
-        return rowService.query(tablePath, tableName, request.getQuery());
-    }
-
-    private String extractTableName(String query) {
-        String normalized = query.trim().replaceAll("\\s+", " ");
-        String upper = normalized.toUpperCase();
-        int fromIndex = upper.indexOf("FROM");
-        if (fromIndex < 0) {
-            throw new IllegalArgumentException("Unsupported query: " + query);
-        }
-        String remainder = normalized.substring(fromIndex + "FROM".length()).trim();
-        int whereIndex = remainder.toUpperCase().indexOf("WHERE");
-        String tableName = (whereIndex >= 0 ? remainder.substring(0, whereIndex) : remainder).trim();
-        if (tableName.isEmpty()) {
-            throw new IllegalArgumentException("Unsupported query: " + query);
-        }
-        return tableName;
+        return sqlEngine.execute(databaseName, request.getQuery());
     }
 }

@@ -19,8 +19,8 @@ public class QueryEngine {
     // no spaces required around the operator, and the longer two-character
     // operators (>=, <=, !=, <>) are tried before the single-character ones
     // so "age>=20" doesn't get misread as "age" ">" "=20". The column is
-    // restricted to \w (letters/digits/underscore) — the same charset
-    // column names are validated against elsewhere — so it can never
+    // restricted to \w (letters/digits/underscore) -- the same charset
+    // column names are validated against elsewhere -- so it can never
     // greedily swallow part of the operator the way a bare \S+ would for
     // symbols like "!=" (e.g. mis-splitting "dept!=CSE" as "dept!" "=" "CSE").
     private static final Pattern WHERE_PATTERN =
@@ -50,7 +50,7 @@ public class QueryEngine {
      * transaction's staging file, so uncommitted changes never show up here
      * and committed ones always do as soon as they land.
      *
-     * Only a single condition is supported — no AND/OR, no nested clauses,
+     * Only a single condition is supported -- no AND/OR, no nested clauses,
      * no joins. That's a deliberate scope limit of this teaching project,
      * not a bug.
      */
@@ -59,7 +59,7 @@ public class QueryEngine {
             throw new IllegalArgumentException("Query cannot be empty.");
         }
 
-        String normalized = query.trim().replaceAll("\\s+", " ");
+        String normalized = SqlText.collapseWhitespace(query);
         String upperNormalized = normalized.toUpperCase();
 
         if (!upperNormalized.startsWith(SELECT_PREFIX)) {
@@ -67,10 +67,10 @@ public class QueryEngine {
         }
 
         String remainder = normalized.substring(SELECT_PREFIX.length()).trim();
-        String upperRemainder = remainder.toUpperCase();
-        int whereIndex = upperRemainder.indexOf("WHERE");
+        String[] parts = SqlText.splitOnWhere(remainder);
+        String queriedTable = parts[0];
+        String whereClause = parts[1];
 
-        String queriedTable = (whereIndex >= 0 ? remainder.substring(0, whereIndex) : remainder).trim();
         if (queriedTable.isEmpty()) {
             throw new IllegalArgumentException("Unsupported query: " + query);
         }
@@ -79,11 +79,21 @@ public class QueryEngine {
         }
 
         Path dataFile = tablePath.resolve("data.dat");
-        if (whereIndex < 0) {
+        if (whereClause == null) {
             return recordStorage.readRows(dataFile);
         }
 
-        String whereClause = remainder.substring(whereIndex + "WHERE".length()).trim();
+        WhereCondition condition = parseWhereCondition(whereClause);
+        return recordStorage.filterRows(dataFile, condition.column(), condition.operator(), condition.value());
+    }
+
+    /**
+     * Parses a single "&lt;column&gt; &lt;op&gt; &lt;value&gt;" condition
+     * (the text after WHERE, with the WHERE keyword already stripped).
+     * Shared with SqlEngine so UPDATE/DELETE's WHERE clauses parse exactly
+     * the same way SELECT's does.
+     */
+    public WhereCondition parseWhereCondition(String whereClause) {
         Matcher matcher = WHERE_PATTERN.matcher(whereClause);
         if (!matcher.matches()) {
             throw new IllegalArgumentException(
@@ -91,8 +101,8 @@ public class QueryEngine {
         }
         String column = matcher.group(1);
         String operator = toInternalOperator(matcher.group(2));
-        String rawValue = matcher.group(3).trim();
-        return recordStorage.filterRows(dataFile, column, operator, parseValue(rawValue));
+        Object value = SqlValueParser.parseValue(matcher.group(3).trim());
+        return new WhereCondition(column, operator, value);
     }
 
     /** Maps the MySQL-style symbol the person typed to RecordStorage's internal operator codes. */
@@ -107,19 +117,5 @@ public class QueryEngine {
             case "<=": return "LTE";
             default:   throw new IllegalArgumentException("Unsupported operator: " + symbol);
         }
-    }
-
-    private Object parseValue(String value) {
-        String trimmed = value.trim();
-        if (trimmed.equalsIgnoreCase("true") || trimmed.equalsIgnoreCase("false")) {
-            return Boolean.parseBoolean(trimmed);
-        }
-        if (trimmed.matches("-?\\d+")) {
-            return Integer.parseInt(trimmed);
-        }
-        if (trimmed.matches("-?\\d+\\.\\d+")) {
-            return Double.parseDouble(trimmed);
-        }
-        return trimmed.replace("'", "").replace("\"", "");
     }
 }

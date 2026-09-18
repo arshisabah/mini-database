@@ -123,38 +123,112 @@ public class RecordStorage {
         List<Map<String, Object>> rows = readRows(dataFile);
         List<Map<String, Object>> filtered = new ArrayList<>();
         for (Map<String, Object> row : rows) {
-            Object actualValue = row.get(column);
-            if (actualValue == null) {
-                continue;
-            }
-            boolean match = false;
-            switch (operator) {
-                case "EQ":
-                    match = Objects.equals(actualValue, value);
-                    break;
-                case "NEQ":
-                    match = !Objects.equals(actualValue, value);
-                    break;
-                case "GT":
-                    match = compare(actualValue, value) > 0;
-                    break;
-                case "LT":
-                    match = compare(actualValue, value) < 0;
-                    break;
-                case "GTE":
-                    match = compare(actualValue, value) >= 0;
-                    break;
-                case "LTE":
-                    match = compare(actualValue, value) <= 0;
-                    break;
-                default:
-                    throw new IllegalArgumentException("Unsupported operator: " + operator);
-            }
-            if (match) {
+            if (matches(row, column, operator, value)) {
                 filtered.add(row);
             }
         }
         return filtered;
+    }
+
+    /**
+     * Applies {@code changes} to every row matching the filter and writes
+     * the result back in one pass. Pass a null {@code column} to match
+     * every row (an unconditional UPDATE, same as SQL's UPDATE with no
+     * WHERE). Rejects the whole update if it would leave two rows sharing
+     * a primary key -- unlike a single-row update by id, a WHERE-scoped
+     * bulk update can touch the primary key column itself, so this check
+     * isn't optional here. Returns how many rows were changed.
+     */
+    public int updateWhere(Path dataFile, Table table, String column, String operator, Object value, Map<String, Object> changes) throws IOException {
+        List<Map<String, Object>> rows = readRows(dataFile);
+        Column pkColumn = findPrimaryKey(table);
+        int updated = 0;
+        for (int i = 0; i < rows.size(); i++) {
+            Map<String, Object> row = rows.get(i);
+            if (column == null || matches(row, column, operator, value)) {
+                Map<String, Object> merged = new HashMap<>(row);
+                merged.putAll(changes);
+                rows.set(i, merged);
+                updated++;
+            }
+        }
+        if (updated > 0) {
+            assertNoDuplicatePrimaryKeys(rows, pkColumn);
+            writeRows(dataFile, rows);
+        }
+        return updated;
+    }
+
+    /**
+     * Removes every row matching the filter and writes the result back in
+     * one pass. Pass a null {@code column} to match every row (an
+     * unconditional DELETE — clears the table). Returns how many rows were
+     * removed.
+     */
+    public int deleteWhere(Path dataFile, String column, String operator, Object value) throws IOException {
+        List<Map<String, Object>> rows = readRows(dataFile);
+        List<Map<String, Object>> kept = new ArrayList<>();
+        int removed = 0;
+        for (Map<String, Object> row : rows) {
+            if (column == null || matches(row, column, operator, value)) {
+                removed++;
+            } else {
+                kept.add(row);
+            }
+        }
+        if (removed > 0) {
+            writeRows(dataFile, kept);
+        }
+        return removed;
+    }
+
+    /** ALTER TABLE DROP COLUMN's row-side half: strips the field from every row. */
+    public void dropColumnFromRows(Path dataFile, String columnName) throws IOException {
+        List<Map<String, Object>> rows = readRows(dataFile);
+        for (Map<String, Object> row : rows) {
+            row.remove(columnName);
+        }
+        writeRows(dataFile, rows);
+    }
+
+    /** ALTER TABLE RENAME COLUMN's row-side half: renames the key in every row, preserving column order. */
+    public void renameColumnInRows(Path dataFile, String oldName, String newName) throws IOException {
+        List<Map<String, Object>> rows = readRows(dataFile);
+        List<Map<String, Object>> renamed = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            Map<String, Object> updated = new java.util.LinkedHashMap<>();
+            for (Map.Entry<String, Object> entry : row.entrySet()) {
+                updated.put(entry.getKey().equals(oldName) ? newName : entry.getKey(), entry.getValue());
+            }
+            renamed.add(updated);
+        }
+        writeRows(dataFile, renamed);
+    }
+
+    private boolean matches(Map<String, Object> row, String column, String operator, Object value) {
+        Object actualValue = row.get(column);
+        if (actualValue == null) {
+            return false;
+        }
+        switch (operator) {
+            case "EQ":  return Objects.equals(actualValue, value);
+            case "NEQ": return !Objects.equals(actualValue, value);
+            case "GT":  return compare(actualValue, value) > 0;
+            case "LT":  return compare(actualValue, value) < 0;
+            case "GTE": return compare(actualValue, value) >= 0;
+            case "LTE": return compare(actualValue, value) <= 0;
+            default:    throw new IllegalArgumentException("Unsupported operator: " + operator);
+        }
+    }
+
+    private void assertNoDuplicatePrimaryKeys(List<Map<String, Object>> rows, Column pkColumn) {
+        java.util.Set<Object> seen = new java.util.HashSet<>();
+        for (Map<String, Object> row : rows) {
+            Object pkValue = row.get(pkColumn.getName());
+            if (!seen.add(pkValue)) {
+                throw new DuplicateKeyException("Update would duplicate primary key value: " + pkValue);
+            }
+        }
     }
 
     private int compare(Object left, Object right) {

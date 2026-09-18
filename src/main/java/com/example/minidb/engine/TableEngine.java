@@ -52,6 +52,118 @@ public class TableEngine {
         tableStorage.deleteTable(databasePath, tableName);
     }
 
+    // -----------------------------------------------------------------
+    // ALTER TABLE -- schema mutation only. Row migration (stripping a
+    // dropped column from every row, renaming a key in every row) is
+    // TableService's job, since that needs RecordStorage, which TableEngine
+    // deliberately doesn't depend on -- this class stays metadata-only.
+    // Each method re-validates the whole resulting schema with
+    // DataValidator before writing it, so the same rules that apply to
+    // CREATE TABLE (valid names, no duplicates, exactly one primary key)
+    // still hold after an ALTER.
+    // -----------------------------------------------------------------
+
+    public Table addColumn(Path databasePath, String tableName, Column newColumn) throws IOException {
+        Path tablePath = tableStorage.getTablePath(databasePath, tableName);
+        Table table = getTable(databasePath, tableName);
+        if (table.getColumns().stream().anyMatch(c -> c.getName().equalsIgnoreCase(newColumn.getName()))) {
+            throw new IllegalArgumentException("Column already exists: " + newColumn.getName());
+        }
+        if (newColumn.isPrimaryKey()) {
+            throw new IllegalArgumentException(
+                    "ALTER TABLE ADD COLUMN can't introduce a new primary key -- the table already has one.");
+        }
+        List<Column> columns = new ArrayList<>(table.getColumns());
+        columns.add(newColumn);
+        Table updated = new Table(table.getName(), columns);
+        dataValidator.validateTableDefinition(updated);
+        tableStorage.writeTableMeta(tablePath, updated);
+        return updated;
+    }
+
+    public Table dropColumn(Path databasePath, String tableName, String columnName) throws IOException {
+        Path tablePath = tableStorage.getTablePath(databasePath, tableName);
+        Table table = getTable(databasePath, tableName);
+        Column target = table.getColumns().stream()
+                .filter(c -> c.getName().equalsIgnoreCase(columnName))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Unknown column: '" + columnName + "'."));
+        if (target.isPrimaryKey()) {
+            throw new IllegalArgumentException("Can't drop the primary key column '" + columnName + "'.");
+        }
+        List<Column> columns = new ArrayList<>();
+        for (Column c : table.getColumns()) {
+            if (!c.getName().equalsIgnoreCase(columnName)) {
+                columns.add(c);
+            }
+        }
+        if (columns.isEmpty()) {
+            throw new IllegalArgumentException("A table must keep at least one column.");
+        }
+        Table updated = new Table(table.getName(), columns);
+        dataValidator.validateTableDefinition(updated);
+        tableStorage.writeTableMeta(tablePath, updated);
+        return updated;
+    }
+
+    public Table renameColumn(Path databasePath, String tableName, String oldName, String newName) throws IOException {
+        Path tablePath = tableStorage.getTablePath(databasePath, tableName);
+        Table table = getTable(databasePath, tableName);
+        if (!DataValidator.isValidName(newName)) {
+            throw new IllegalArgumentException("Invalid column name: " + newName);
+        }
+        boolean found = false;
+        List<Column> columns = new ArrayList<>();
+        for (Column c : table.getColumns()) {
+            if (c.getName().equalsIgnoreCase(oldName)) {
+                found = true;
+                columns.add(new Column(newName, c.getDataType(), c.isPrimaryKey()));
+            } else {
+                if (c.getName().equalsIgnoreCase(newName)) {
+                    throw new IllegalArgumentException("Column already exists: " + newName);
+                }
+                columns.add(c);
+            }
+        }
+        if (!found) {
+            throw new IllegalArgumentException("Unknown column: '" + oldName + "'.");
+        }
+        Table updated = new Table(table.getName(), columns);
+        dataValidator.validateTableDefinition(updated);
+        tableStorage.writeTableMeta(tablePath, updated);
+        return updated;
+    }
+
+    /**
+     * Changes a column's declared type going forward. This deliberately does
+     * NOT attempt to convert existing stored values to the new type -- rows
+     * written before the change keep whatever they had, which may no longer
+     * satisfy the new type on a future read-and-validate. That's a known,
+     * documented limitation (see README), not an oversight: safe automatic
+     * type coercion (e.g. VARCHAR "abc" -> INT) isn't generally possible.
+     */
+    public Table modifyColumnType(Path databasePath, String tableName, String columnName, DataType newType) throws IOException {
+        Path tablePath = tableStorage.getTablePath(databasePath, tableName);
+        Table table = getTable(databasePath, tableName);
+        boolean found = false;
+        List<Column> columns = new ArrayList<>();
+        for (Column c : table.getColumns()) {
+            if (c.getName().equalsIgnoreCase(columnName)) {
+                found = true;
+                columns.add(new Column(c.getName(), newType, c.isPrimaryKey()));
+            } else {
+                columns.add(c);
+            }
+        }
+        if (!found) {
+            throw new IllegalArgumentException("Unknown column: '" + columnName + "'.");
+        }
+        Table updated = new Table(table.getName(), columns);
+        dataValidator.validateTableDefinition(updated);
+        tableStorage.writeTableMeta(tablePath, updated);
+        return updated;
+    }
+
     private void validateRequest(CreateTableRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("Table request is required.");

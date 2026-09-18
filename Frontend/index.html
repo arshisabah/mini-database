@@ -31,6 +31,11 @@
         <span id="connText">Not connected</span>
       </span>
     </div>
+
+    <div class="mode-toggle" id="modeToggle" role="group" aria-label="Interaction mode">
+      <button id="modeUiBtn" class="mode-btn active" type="button" title="Use the structured forms">UI</button>
+      <button id="modeQueryBtn" class="mode-btn" type="button" title="Type the equivalent SQL-style statement instead">Query</button>
+    </div>
   </header>
 
   <div class="body">
@@ -85,6 +90,7 @@
             </div>
             <div class="panel-actions">
               <button id="addRowBtn" class="btn btn-primary">Add row</button>
+              <button id="alterTableBtn" class="btn btn-secondary">Alter table</button>
               <button id="deleteTableBtn" class="btn btn-danger-ghost">Delete table</button>
             </div>
           </div>
@@ -131,7 +137,7 @@
               <h2>Run a query</h2>
             </div>
           </div>
-          <p class="query-hint">Supports <code>SELECT * FROM &lt;table&gt; WHERE &lt;column&gt; &lt;op&gt; &lt;value&gt;</code>, where op is one of <code>=</code>, <code>!=</code>, <code>&lt;&gt;</code>, <code>&gt;</code>, <code>&lt;</code>, <code>&gt;=</code>, <code>&lt;=</code> — written just like MySQL. The WHERE clause is optional.</p>
+          <p class="query-hint">Also supports <code>INSERT INTO</code>, <code>UPDATE ... SET</code>, <code>DELETE FROM</code>, <code>CREATE TABLE</code>, and <code>DROP TABLE</code> — each runs immediately. <code>WHERE</code> accepts <code>=</code>, <code>!=</code>, <code>&lt;&gt;</code>, <code>&gt;</code>, <code>&lt;</code>, <code>&gt;=</code>, <code>&lt;=</code>, written just like MySQL.</p>
           <div class="query-bar">
             <input id="queryInput" class="input query-input" type="text" spellcheck="false">
             <button id="runQueryBtn" class="btn btn-primary">Run</button>

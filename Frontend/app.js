@@ -13,6 +13,10 @@ const state = {
   currentTableSchema: null, // { name, columns: [{name, dataType, primaryKey}] }
   baseRows: [],       // last rows fetched from the server (committed state)
   filterActive: false,
+  // 'ui' = the structured forms/staging flow below (default). 'query' = every
+  // create/edit/delete action instead opens a prefilled SQL-style statement
+  // that runs immediately via the query console endpoints. See runAsQuery().
+  mode: localStorage.getItem('minidb.mode') === 'query' ? 'query' : 'ui',
   pending: {           // staged, uncommitted row changes — see commit()/rollback()
     inserts: [],        // array of full row objects not yet sent to the server
     updates: {},         // pkString -> { changed fields }
@@ -36,6 +40,8 @@ const connDot        = el('connDot');
 const connText       = el('connText');
 const dbList         = el('dbList');
 const newDbBtn       = el('newDbBtn');
+const modeUiBtn      = el('modeUiBtn');
+const modeQueryBtn   = el('modeQueryBtn');
 
 const emptyState     = el('emptyState');
 const dbView         = el('dbView');
@@ -49,6 +55,7 @@ const tableView       = el('tableView');
 const tableNameHeading= el('tableNameHeading');
 const schemaChips     = el('schemaChips');
 const addRowBtn       = el('addRowBtn');
+const alterTableBtn   = el('alterTableBtn');
 const deleteTableBtn  = el('deleteTableBtn');
 
 const filterColumn   = el('filterColumn');
@@ -131,6 +138,7 @@ const Api = {
   getTable: (db, table) => api(`/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}`),
   createTable: (db, payload) => api(`/databases/${encodeURIComponent(db)}/tables`, { method: 'POST', body: JSON.stringify(payload) }),
   deleteTable: (db, table) => api(`/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}`, { method: 'DELETE' }),
+  alterTable: (db, table, payload) => api(`/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
 
   getRows: (db, table) => api(`/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/rows`),
   filterRows: (db, table, column, operator, value) =>
@@ -145,6 +153,12 @@ const Api = {
   beginTransaction: (db, table) => api(`/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/transactions`, { method: 'POST' }),
   commitTransaction: (db, table, txId) => api(`/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/transactions/${encodeURIComponent(txId)}/commit`, { method: 'POST' }),
   rollbackTransaction: (db, table, txId) => api(`/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/transactions/${encodeURIComponent(txId)}/rollback`, { method: 'POST' }),
+
+  // Query mode: full SQL-text statements, executed immediately (no staging).
+  // runGlobalQuery is for statements not scoped to an existing database
+  // (CREATE DATABASE / DROP DATABASE); runQuery (above) handles everything
+  // else once a database exists.
+  runGlobalQuery: (query) => api(`/query`, { method: 'POST', body: JSON.stringify({ query }) }),
 };
 
 function txQuery(txId) {
@@ -158,11 +172,14 @@ function txQuery(txId) {
 function bindStaticEvents() {
   connectBtn.addEventListener('click', () => tryConnect(false));
   baseUrlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryConnect(false); });
-  newDbBtn.addEventListener('click', openCreateDatabaseModal);
-  deleteDbBtn.addEventListener('click', confirmDeleteDatabase);
-  newTableBtn.addEventListener('click', openCreateTableModal);
-  deleteTableBtn.addEventListener('click', confirmDeleteTable);
+  modeUiBtn.addEventListener('click', () => setMode('ui'));
+  modeQueryBtn.addEventListener('click', () => setMode('query'));
+  newDbBtn.addEventListener('click', () => { if (state.mode === 'query') openCreateDatabaseQuery(); else openCreateDatabaseModal(); });
+  deleteDbBtn.addEventListener('click', () => { if (state.mode === 'query') openDeleteDatabaseQuery(); else confirmDeleteDatabase(); });
+  newTableBtn.addEventListener('click', () => { if (state.mode === 'query') openCreateTableQuery(); else openCreateTableModal(); });
+  deleteTableBtn.addEventListener('click', () => { if (state.mode === 'query') openDeleteTableQuery(); else confirmDeleteTable(); });
   addRowBtn.addEventListener('click', () => openRowModal(null));
+  alterTableBtn.addEventListener('click', () => { if (state.mode === 'query') openAlterTableQuery(); else openAlterTableModal(); });
   applyFilterBtn.addEventListener('click', applyFilter);
   clearFilterBtn.addEventListener('click', clearFilter);
   commitBtn.addEventListener('click', commitChanges);
@@ -173,6 +190,17 @@ function bindStaticEvents() {
   modalBackdrop.addEventListener('click', closeModal);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
 }
+
+/** Switches between the structured UI forms and the "type a query instead"
+ *  flow. Applies to every create/edit/delete action; doesn't affect SELECT
+ *  (the query console at the bottom of a table already runs raw text). */
+function setMode(mode) {
+  state.mode = mode;
+  localStorage.setItem('minidb.mode', mode);
+  modeUiBtn.classList.toggle('active', mode === 'ui');
+  modeQueryBtn.classList.toggle('active', mode === 'query');
+}
+setMode(state.mode);
 
 async function tryConnect(silent) {
   state.baseUrl = baseUrlInput.value.trim().replace(/\/+$/, '');
@@ -419,6 +447,85 @@ function openCreateTableModal() {
   });
 }
 
+const DATA_TYPES = ['INT', 'VARCHAR', 'DOUBLE', 'BOOLEAN', 'DATE'];
+
+/** Add/drop/rename a column, or change one's declared type. Unlike row
+ *  edits, this always runs immediately (even in UI mode) — there's no
+ *  staged/commit step for schema changes. */
+function openAlterTableModal() {
+  if (!state.currentTable) return;
+  const columns = getColumnNames();
+  const typeOptions = () => DATA_TYPES.map(t => `<option value="${t}">${t}</option>`).join('');
+  const columnOptions = () => columns.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+
+  const fieldsFor = (op) => {
+    if (op === 'ADD_COLUMN') {
+      return `
+        <div class="field"><label for="alt-col-name">New column name</label><input id="alt-col-name" class="input" type="text" placeholder="e.g. email"></div>
+        <div class="field"><label for="alt-col-type">Type</label><select id="alt-col-type" class="input select">${typeOptions()}</select></div>`;
+    }
+    if (op === 'DROP_COLUMN') {
+      return `
+        <div class="field"><label for="alt-target-col">Column to drop</label><select id="alt-target-col" class="input select">${columnOptions()}</select></div>
+        <p class="mode-hint">Removes this column's value from every existing row.</p>`;
+    }
+    if (op === 'RENAME_COLUMN') {
+      return `
+        <div class="field"><label for="alt-target-col">Column to rename</label><select id="alt-target-col" class="input select">${columnOptions()}</select></div>
+        <div class="field"><label for="alt-new-name">New name</label><input id="alt-new-name" class="input" type="text"></div>`;
+    }
+    return `
+      <div class="field"><label for="alt-target-col">Column to change</label><select id="alt-target-col" class="input select">${columnOptions()}</select></div>
+      <div class="field"><label for="alt-col-type">New type</label><select id="alt-col-type" class="input select">${typeOptions()}</select></div>
+      <p class="mode-hint">Existing row values aren't converted — only new writes are checked against the new type.</p>`;
+  };
+
+  openModal('Alter table', `
+    <div class="field">
+      <label for="alt-op">Operation</label>
+      <select id="alt-op" class="input select">
+        <option value="ADD_COLUMN">Add column</option>
+        <option value="DROP_COLUMN">Drop column</option>
+        <option value="RENAME_COLUMN">Rename column</option>
+        <option value="MODIFY_COLUMN">Change column type</option>
+      </select>
+    </div>
+    <div id="alt-fields">${fieldsFor('ADD_COLUMN')}</div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="submitBtn">Apply</button>
+    </div>
+  `);
+
+  el('alt-op').addEventListener('change', (e) => { el('alt-fields').innerHTML = fieldsFor(e.target.value); });
+  el('cancelBtn').addEventListener('click', closeModal);
+  el('submitBtn').addEventListener('click', async () => {
+    const op = el('alt-op').value;
+    const payload = { operation: op };
+    if (op === 'ADD_COLUMN') {
+      const name = el('alt-col-name').value.trim();
+      if (!name) { toast('error', 'Column name is required.'); return; }
+      payload.column = { name, dataType: el('alt-col-type').value };
+    } else if (op === 'DROP_COLUMN') {
+      payload.columnName = el('alt-target-col').value;
+    } else if (op === 'RENAME_COLUMN') {
+      const newName = el('alt-new-name').value.trim();
+      if (!newName) { toast('error', 'New column name is required.'); return; }
+      payload.columnName = el('alt-target-col').value;
+      payload.newColumnName = newName;
+    } else {
+      payload.columnName = el('alt-target-col').value;
+      payload.dataType = el('alt-col-type').value;
+    }
+    try {
+      await Api.alterTable(state.currentDb, state.currentTable, payload);
+      toast('success', 'Table altered successfully.');
+      closeModal();
+      await selectTable(state.currentTable); // reloads schema + rows to match
+    } catch (err) { toast('error', err.message); }
+  });
+}
+
 function confirmDeleteTable() {
   if (!state.currentTable) return;
   const name = state.currentTable;
@@ -570,6 +677,10 @@ function renderRows() {
 }
 
 function stageDeleteRow(row) {
+  if (state.mode === 'query' && row._status !== 'inserted') {
+    openDeleteRowQuery(row);
+    return;
+  }
   if (row._status === 'inserted') {
     state.pending.inserts.splice(row._insertIdx, 1);
   } else {
@@ -615,10 +726,19 @@ function castValue(dataType, raw) {
 }
 
 /** Adding/editing a row only stages the change locally — it is not sent to
- *  the server until the user clicks Commit (see commitChanges()). */
+ *  the server until the user clicks Commit (see commitChanges()) — unless
+ *  mode is 'query', in which case it opens a runnable INSERT/UPDATE
+ *  statement instead (see openRowQueryModal). A row that's itself still an
+ *  uncommitted staged insert has no server identity yet to key an UPDATE
+ *  off of, so editing it always uses the staged form regardless of mode. */
 function openRowModal(existingRow) {
+  const isStagedInsert = !!existingRow && existingRow._status === 'inserted';
+  if (state.mode === 'query' && !isStagedInsert) {
+    openRowQueryModal(existingRow);
+    return;
+  }
+
   const isEdit = !!existingRow;
-  const isStagedInsert = isEdit && existingRow._status === 'inserted';
   const columns = state.currentTableSchema.columns;
   const pk = getPrimaryKeyColumn();
 
@@ -666,6 +786,156 @@ function openRowModal(existingRow) {
     closeModal();
     renderRows();
   });
+}
+
+// ===========================================================
+// Query mode -- "type it instead" alternative to the structured forms
+//
+// When state.mode === 'query', the create/edit/delete buttons open a
+// prefilled SQL-style statement (built from the current schema/row so you
+// rarely have to type column names by hand) instead of the structured
+// form. Running it executes immediately via the query console endpoints --
+// it does NOT go through the pending/commit staging area the UI forms use.
+// ===========================================================
+
+/** Renders a value as a literal a typed SQL statement would accept:
+ *  quoted for VARCHAR/DATE, bare for everything else, NULL for empty. */
+function sqlLiteral(dataType, value) {
+  if (value === null || value === undefined || value === '') return 'NULL';
+  if (dataType === 'VARCHAR' || dataType === 'DATE') {
+    return `'${String(value).replace(/'/g, "''")}'`;
+  }
+  return String(value);
+}
+
+/** MiniDB requires every column on INSERT (no optional fields), so the
+ *  generated template needs a real, non-null value per column, not NULL. */
+function placeholderLiteral(col) {
+  switch (col.dataType) {
+    case 'INT': return '0';
+    case 'DOUBLE': return '0.0';
+    case 'BOOLEAN': return 'false';
+    case 'DATE': return `'${new Date().toISOString().slice(0, 10)}'`;
+    default: return "''";
+  }
+}
+
+/** Opens a modal with an editable, prefilled statement and a "Run query"
+ *  button. `global` picks the endpoint: true for statements with no
+ *  existing-database scope (CREATE/DROP DATABASE), false for everything
+ *  else (runs against state.currentDb). */
+function openRunQueryModal(title, prefilledQuery, { global = false, onSuccess } = {}) {
+  openModal(title, `
+    <p class="mode-hint">Edit the statement if needed, then run it. This executes immediately — it does not go through the pending/commit staging area.</p>
+    <textarea id="q-text" class="query-modal-textarea" spellcheck="false">${escapeHtml(prefilledQuery)}</textarea>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
+      <button class="btn btn-primary" id="submitBtn">Run query</button>
+    </div>
+  `);
+  el('cancelBtn').addEventListener('click', closeModal);
+  el('submitBtn').addEventListener('click', async () => {
+    const query = el('q-text').value.trim();
+    if (!query) { toast('error', 'Enter a query first.'); return; }
+    try {
+      const result = global ? await Api.runGlobalQuery(query) : await Api.runQuery(state.currentDb, query);
+      closeModal();
+      toast('success', describeQueryResult(result));
+      if (onSuccess) await onSuccess();
+    } catch (err) { toast('error', err.message); }
+  });
+}
+
+/** Turns a query-endpoint response (a row array for SELECT, or a message
+ *  object for everything else) into one toast-friendly sentence. */
+function describeQueryResult(result) {
+  if (Array.isArray(result)) {
+    return `Query returned ${result.length} row${result.length === 1 ? '' : 's'}.`;
+  }
+  if (result && typeof result === 'object') {
+    const suffix = typeof result.rowsAffected === 'number'
+      ? ` (${result.rowsAffected} row${result.rowsAffected === 1 ? '' : 's'} affected)`
+      : '';
+    return (result.message || 'Query executed.') + suffix;
+  }
+  return 'Query executed.';
+}
+
+function openCreateDatabaseQuery() {
+  openRunQueryModal('Create database (query)', 'CREATE DATABASE your_db_name', {
+    global: true,
+    onSuccess: () => tryConnect(true),
+  });
+}
+
+function openDeleteDatabaseQuery() {
+  if (!state.currentDb) return;
+  const name = state.currentDb;
+  openRunQueryModal('Drop database (query)', `DROP DATABASE ${name}`, {
+    global: true,
+    onSuccess: async () => {
+      state.currentDb = null;
+      state.currentTable = null;
+      dbView.classList.add('hidden');
+      emptyState.classList.remove('hidden');
+      await tryConnect(true);
+    },
+  });
+}
+
+function openCreateTableQuery() {
+  if (!state.currentDb) return;
+  const template = 'CREATE TABLE your_table_name (\n  id INT PRIMARY KEY,\n  name VARCHAR\n)';
+  openRunQueryModal('Create table (query)', template, { onSuccess: loadTables });
+}
+
+function openDeleteTableQuery() {
+  if (!state.currentTable) return;
+  const name = state.currentTable;
+  openRunQueryModal('Drop table (query)', `DROP TABLE ${name}`, {
+    onSuccess: async () => {
+      state.currentTable = null;
+      state.currentTableSchema = null;
+      tableView.classList.add('hidden');
+      queryView.classList.add('hidden');
+      await loadTables();
+    },
+  });
+}
+
+function openAlterTableQuery() {
+  if (!state.currentTable) return;
+  const template = `ALTER TABLE ${state.currentTable} ADD COLUMN new_column VARCHAR`;
+  openRunQueryModal('Alter table (query)', template, {
+    onSuccess: () => selectTable(state.currentTable), // reloads schema + rows to match
+  });
+}
+
+/** Add/Edit row in query mode: builds an INSERT (no existing row) or an
+ *  UPDATE keyed on the primary key (existing row), prefilled with its
+ *  current values so editing is usually just tweaking one or two literals. */
+function openRowQueryModal(existingRow) {
+  const columns = state.currentTableSchema.columns;
+  const pk = getPrimaryKeyColumn();
+  const table = state.currentTable;
+
+  if (existingRow) {
+    const setParts = columns.filter(c => !c.primaryKey)
+      .map(c => `${c.name} = ${sqlLiteral(c.dataType, existingRow[c.name])}`);
+    const query = `UPDATE ${table} SET ${setParts.join(', ')} WHERE ${pk.name} = ${sqlLiteral(pk.dataType, existingRow[pk.name])}`;
+    openRunQueryModal('Edit row (query)', query, { onSuccess: loadRows });
+  } else {
+    const colNames = columns.map(c => c.name).join(', ');
+    const values = columns.map(placeholderLiteral).join(', ');
+    const query = `INSERT INTO ${table} (${colNames}) VALUES (${values})`;
+    openRunQueryModal('Add row (query)', query, { onSuccess: loadRows });
+  }
+}
+
+function openDeleteRowQuery(row) {
+  const pk = getPrimaryKeyColumn();
+  const query = `DELETE FROM ${state.currentTable} WHERE ${pk.name} = ${sqlLiteral(pk.dataType, row[pk.name])}`;
+  openRunQueryModal('Delete row (query)', query, { onSuccess: loadRows });
 }
 
 // ===========================================================
@@ -757,14 +1027,31 @@ function rollbackChanges() {
 
 // ===========================================================
 // Query console
+//
+// This box runs the full statement grammar now, not just SELECT: INSERT,
+// UPDATE, DELETE, CREATE TABLE, DROP TABLE all work here too (executed
+// immediately, same as the query-mode modals above). A SELECT's response
+// is a row array and renders as a results table; everything else returns
+// a message object, which just gets toasted and also refreshes the grid
+// and table list in case it touched what's currently shown.
 // ===========================================================
 
 async function runQuery() {
   const q = queryInput.value.trim();
   if (!q) { toast('error', 'Enter a query first.'); return; }
   try {
-    const results = await Api.runQuery(state.currentDb, q);
-    renderQueryResults(results || []);
+    const result = await Api.runQuery(state.currentDb, q);
+    if (Array.isArray(result)) {
+      renderQueryResults(result);
+    } else {
+      renderQueryMessage(result);
+      toast('success', describeQueryResult(result));
+      // The statement may have changed rows in the currently open table, or
+      // added/dropped a table entirely — refresh both so the UI can't drift
+      // out of sync with what the query just did.
+      if (state.currentTable) await loadRows();
+      await loadTables();
+    }
   } catch (err) {
     toast('error', err.message);
     queryHead.innerHTML = '';
@@ -790,6 +1077,16 @@ function renderQueryResults(rows) {
     tr.innerHTML = columns.map(c => `<td>${formatCell(row[c])}</td>`).join('');
     queryBody.appendChild(tr);
   });
+}
+
+/** Shows a non-SELECT result (INSERT/UPDATE/DELETE/CREATE TABLE/DROP TABLE)
+ *  in the same results area a SELECT would use, since there are no rows to
+ *  list — just the message the statement returned. */
+function renderQueryMessage(result) {
+  queryHead.innerHTML = '';
+  queryBody.innerHTML = '';
+  queryEmptyHint.style.display = 'block';
+  queryEmptyHint.textContent = describeQueryResult(result);
 }
 
 // ===========================================================
