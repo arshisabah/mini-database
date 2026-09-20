@@ -75,6 +75,7 @@ const commitBtn       = el('commitBtn');
 const rollbackBtn     = el('rollbackBtn');
 
 const queryView      = el('queryView');
+const queryScopeLabel = el('queryScopeLabel');
 const queryInput     = el('queryInput');
 const runQueryBtn    = el('runQueryBtn');
 const queryHead      = el('queryHead');
@@ -199,8 +200,32 @@ function setMode(mode) {
   localStorage.setItem('minidb.mode', mode);
   modeUiBtn.classList.toggle('active', mode === 'ui');
   modeQueryBtn.classList.toggle('active', mode === 'query');
+  syncQueryConsoleVisibility();
 }
 setMode(state.mode);
+
+/**
+ * The query console is a persistent panel, not something you only see
+ * after drilling into a table -- it's visible whenever Query mode is on
+ * (from the very first screen, with nothing selected yet: that's what lets
+ * you run CREATE DATABASE with no database picked), and also whenever a
+ * table happens to be open in UI mode, matching where it always used to
+ * live. It adapts its target (global vs. this database) and its label to
+ * whatever's currently selected -- see runQuery().
+ */
+function syncQueryConsoleVisibility() {
+  const visible = state.mode === 'query' || !!state.currentTable;
+  queryView.classList.toggle('hidden', !visible);
+  if (!visible) return;
+
+  if (state.currentDb) {
+    queryScopeLabel.textContent = `query console — ${state.currentDb}`;
+    queryInput.placeholder = state.currentTable ? `SELECT * FROM ${state.currentTable}` : 'CREATE TABLE your_table_name (id INT PRIMARY KEY, name VARCHAR)';
+  } else {
+    queryScopeLabel.textContent = 'query console — no database selected';
+    queryInput.placeholder = 'CREATE DATABASE your_db_name';
+  }
+}
 
 async function tryConnect(silent) {
   state.baseUrl = baseUrlInput.value.trim().replace(/\/+$/, '');
@@ -254,7 +279,7 @@ async function selectDatabase(name) {
   emptyState.classList.add('hidden');
   dbView.classList.remove('hidden');
   tableView.classList.add('hidden');
-  queryView.classList.add('hidden');
+  syncQueryConsoleVisibility();
   dbPathLabel.textContent = 'database';
   dbNameHeading.textContent = name;
   await loadTables();
@@ -329,6 +354,7 @@ function confirmDeleteDatabase() {
       state.currentTable = null;
       dbView.classList.add('hidden');
       emptyState.classList.remove('hidden');
+      syncQueryConsoleVisibility();
       await tryConnect(true);
     } catch (err) { toast('error', err.message); }
   });
@@ -347,7 +373,7 @@ async function selectTable(name) {
     state.currentTableSchema = schema;
     state.filterActive = false;
     tableView.classList.remove('hidden');
-    queryView.classList.remove('hidden');
+    syncQueryConsoleVisibility();
     tableNameHeading.textContent = name;
     renderSchemaChips(schema);
     renderFilterColumnOptions(schema);
@@ -545,7 +571,7 @@ function confirmDeleteTable() {
       state.currentTable = null;
       state.currentTableSchema = null;
       tableView.classList.add('hidden');
-      queryView.classList.add('hidden');
+      syncQueryConsoleVisibility();
       await loadTables();
     } catch (err) { toast('error', err.message); }
   });
@@ -878,6 +904,7 @@ function openDeleteDatabaseQuery() {
       state.currentTable = null;
       dbView.classList.add('hidden');
       emptyState.classList.remove('hidden');
+      syncQueryConsoleVisibility();
       await tryConnect(true);
     },
   });
@@ -897,7 +924,7 @@ function openDeleteTableQuery() {
       state.currentTable = null;
       state.currentTableSchema = null;
       tableView.classList.add('hidden');
-      queryView.classList.add('hidden');
+      syncQueryConsoleVisibility();
       await loadTables();
     },
   });
@@ -1040,17 +1067,26 @@ async function runQuery() {
   const q = queryInput.value.trim();
   if (!q) { toast('error', 'Enter a query first.'); return; }
   try {
-    const result = await Api.runQuery(state.currentDb, q);
+    // No database picked yet -> only CREATE DATABASE / DROP DATABASE make
+    // sense, and those run against the un-scoped endpoint (see SqlEngine's
+    // executeGlobal). Once a database is selected, everything else runs
+    // scoped to it, same as before.
+    const result = state.currentDb ? await Api.runQuery(state.currentDb, q) : await Api.runGlobalQuery(q);
     if (Array.isArray(result)) {
       renderQueryResults(result);
     } else {
       renderQueryMessage(result);
       toast('success', describeQueryResult(result));
-      // The statement may have changed rows in the currently open table, or
-      // added/dropped a table entirely — refresh both so the UI can't drift
-      // out of sync with what the query just did.
-      if (state.currentTable) await loadRows();
-      await loadTables();
+      // The statement may have changed rows in the currently open table,
+      // added/dropped a table, or -- with no database selected -- created
+      // or dropped a database entirely. Refresh whichever list applies so
+      // the UI can't drift out of sync with what the query just did.
+      if (state.currentDb) {
+        if (state.currentTable) await loadRows();
+        await loadTables();
+      } else {
+        await tryConnect(true); // repopulates the database list in the sidebar
+      }
     }
   } catch (err) {
     toast('error', err.message);
