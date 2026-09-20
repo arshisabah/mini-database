@@ -19,6 +19,8 @@ import com.example.minidb.service.DatabaseService;
 import com.example.minidb.service.RowService;
 import com.example.minidb.service.TableService;
 import com.example.minidb.storage.RecordStorage;
+import com.example.minidb.transaction.Transaction;
+import com.example.minidb.transaction.TransactionManager;
 import com.example.minidb.validator.DataValidator;
 import org.springframework.stereotype.Component;
 
@@ -29,19 +31,22 @@ import org.springframework.stereotype.Component;
  * table, and insert/update/delete rows, on top of the SELECT support
  * QueryEngine already had.
  *
- * Every statement here runs immediately against the live data file -- there
- * is no staged/review/commit step the way the row-editing UI has (see
- * TransactionController for that). That mirrors a real SQL client running
- * in autocommit mode: type a statement, it lands right away. Use the UI
- * forms if you want to stage several changes and review them before they
- * apply, or call TransactionController's endpoints directly for
- * programmatic commit/rollback.
+ * Every INSERT/UPDATE/DELETE/SELECT here runs immediately against the live
+ * data file by default -- same as a real SQL client in autocommit mode --
+ * UNLESS a BEGIN/START TRANSACTION has been run against this database and
+ * not yet resolved, in which case they transparently join that transaction
+ * instead (see TransactionManager's "active session transaction" concept).
+ * That's on top of the row-editing UI's own separate staged-commit flow
+ * (TransactionController), which still works exactly as before and doesn't
+ * interact with SQL-text transactions at all.
  *
  * Deliberately out of scope, same as QueryEngine's SELECT parser: no
- * AND/OR, no joins, no multi-statement scripts. One statement, one clause.
- * ALTER TABLE covers ADD/DROP/RENAME/MODIFY COLUMN but not a MODIFY that
- * converts existing row values to the new type -- see TableEngine's
- * modifyColumnType javadoc.
+ * AND/OR, no joins, no multi-statement scripts, no SAVEPOINT, no isolation
+ * level control (effectively always "read committed" outside a
+ * transaction, "read your own writes" inside one). One statement, one
+ * clause. ALTER TABLE covers ADD/DROP/RENAME/MODIFY COLUMN but not a
+ * MODIFY that converts existing row values to the new type -- see
+ * TableEngine's modifyColumnType javadoc.
  */
 @Component
 public class SqlEngine {
@@ -77,11 +82,12 @@ public class SqlEngine {
     private final RowService rowService;
     private final RecordStorage recordStorage;
     private final QueryEngine queryEngine;
+    private final TransactionManager transactionManager;
     private final DataValidator dataValidator = new DataValidator();
 
     public SqlEngine(DatabaseEngine databaseEngine, TableEngine tableEngine, TableService tableService,
                       DatabaseService databaseService, RowService rowService, RecordStorage recordStorage,
-                      QueryEngine queryEngine) {
+                      QueryEngine queryEngine, TransactionManager transactionManager) {
         this.databaseEngine = databaseEngine;
         this.tableEngine = tableEngine;
         this.tableService = tableService;
@@ -89,15 +95,29 @@ public class SqlEngine {
         this.rowService = rowService;
         this.recordStorage = recordStorage;
         this.queryEngine = queryEngine;
+        this.transactionManager = transactionManager;
     }
 
-    /** Statements scoped to an existing database: SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, DROP TABLE. */
+    /** Statements scoped to an existing database: BEGIN/COMMIT/ROLLBACK, SELECT, INSERT, UPDATE, DELETE, CREATE/DROP/ALTER TABLE. */
     public Object execute(String databaseName, String query) throws IOException {
         if (query == null || query.isBlank()) {
             throw new IllegalArgumentException("Query cannot be empty.");
         }
         String normalized = SqlText.collapseWhitespace(query);
         String upper = normalized.toUpperCase();
+
+        // Transaction control statements match on the whole (trimmed) text,
+        // not just a prefix -- "BEGIN" and "COMMIT" are complete statements
+        // in themselves, unlike "SELECT ..." or "INSERT ...".
+        if (upper.equals("BEGIN") || upper.equals("START TRANSACTION")) {
+            return executeBegin(databaseName);
+        }
+        if (upper.equals("COMMIT")) {
+            return executeCommit(databaseName);
+        }
+        if (upper.equals("ROLLBACK")) {
+            return executeRollback(databaseName);
+        }
 
         if (upper.startsWith("SELECT")) {
             return executeSelect(databaseName, normalized);
@@ -151,12 +171,64 @@ public class SqlEngine {
                 + "everything else runs against POST /api/databases/{databaseName}/query)");
     }
 
+    /**
+     * BEGIN / START TRANSACTION -- starts a session-level transaction for
+     * this database. Real MySQL implicitly commits whatever transaction was
+     * already open before starting the new one instead of erroring or
+     * nesting; we mirror that.
+     */
+    private Map<String, Object> executeBegin(String databaseName) throws IOException {
+        Path databasePath = databaseEngine.getDatabasePath(databaseName); // validates the database exists
+        boolean hadActive = transactionManager.hasActive(databaseName);
+        if (hadActive) {
+            transactionManager.commitActive(databaseName, databasePath);
+        }
+        Transaction transaction = transactionManager.beginActive(databaseName);
+        String message = hadActive
+                ? "Previous transaction committed implicitly. New transaction started. Changes are only visible to others once you COMMIT."
+                : "Transaction started. Changes are only visible to others once you COMMIT.";
+        return Map.of("message", message, "transactionId", transaction.getId(), "database", databaseName);
+    }
+
+    /** COMMIT -- resolves whatever transaction is currently active for this database. A no-op (not an error) if none is, same as MySQL. */
+    private Map<String, Object> executeCommit(String databaseName) throws IOException {
+        Path databasePath = databaseEngine.getDatabasePath(databaseName);
+        boolean hadActive = transactionManager.hasActive(databaseName);
+        transactionManager.commitActive(databaseName, databasePath);
+        return Map.of("message", hadActive ? "Transaction committed." : "No transaction was open -- nothing to commit.",
+                "database", databaseName);
+    }
+
+    /** ROLLBACK -- discards whatever transaction is currently active for this database. A no-op (not an error) if none is, same as MySQL. */
+    private Map<String, Object> executeRollback(String databaseName) throws IOException {
+        databaseEngine.getDatabasePath(databaseName); // validates the database exists
+        boolean hadActive = transactionManager.hasActive(databaseName);
+        transactionManager.rollbackActive(databaseName);
+        return Map.of("message", hadActive ? "Transaction rolled back. Nothing you staged was ever visible outside it." : "No transaction was open -- nothing to roll back.",
+                "database", databaseName);
+    }
+
+    /**
+     * The single seam that makes INSERT/UPDATE/DELETE/SELECT transaction-
+     * aware: if this database has a session transaction open (via
+     * executeBegin), every statement transparently joins it -- reading and
+     * writing that transaction's private working copy for this table --
+     * exactly like running statements inside an open MySQL transaction.
+     * With no open transaction, this is just the table's live file, same
+     * as before this feature existed.
+     */
+    private Path resolveDataFile(String databaseName, String tableName, Path tablePath) throws IOException {
+        String activeTransactionId = transactionManager.activeTransactionId(databaseName);
+        return transactionManager.resolveDataFile(databaseName, tableName, tablePath, activeTransactionId);
+    }
+
     private List<Map<String, Object>> executeSelect(String databaseName, String query) throws IOException {
         String tableName = extractLeadingWordAfter(query, "FROM");
         Path databasePath = databaseEngine.getDatabasePath(databaseName);
         tableEngine.getTable(databasePath, tableName); // validates the table exists
         Path tablePath = databasePath.resolve(tableName);
-        return queryEngine.parseSelectQuery(tablePath, tableName, query);
+        Path dataFile = resolveDataFile(databaseName, tableName, tablePath);
+        return queryEngine.parseSelectQuery(dataFile, tableName, query);
     }
 
     private Map<String, Object> executeInsert(String databaseName, String query) throws IOException {
@@ -175,7 +247,7 @@ public class SqlEngine {
 
         Path databasePath = databaseEngine.getDatabasePath(databaseName);
         Table table = tableEngine.getTable(databasePath, tableName);
-        Path dataFile = databasePath.resolve(tableName).resolve("data.dat");
+        Path dataFile = resolveDataFile(databaseName, tableName, databasePath.resolve(tableName));
 
         Map<String, Object> row = new LinkedHashMap<>();
         for (int i = 0; i < columns.size(); i++) {
@@ -199,7 +271,7 @@ public class SqlEngine {
 
         Path databasePath = databaseEngine.getDatabasePath(databaseName);
         Table table = tableEngine.getTable(databasePath, tableName);
-        Path dataFile = databasePath.resolve(tableName).resolve("data.dat");
+        Path dataFile = resolveDataFile(databaseName, tableName, databasePath.resolve(tableName));
 
         Map<String, Object> changes = new LinkedHashMap<>();
         for (String assignment : SqlText.splitTopLevel(setClause, ',')) {
@@ -236,7 +308,7 @@ public class SqlEngine {
 
         Path databasePath = databaseEngine.getDatabasePath(databaseName);
         tableEngine.getTable(databasePath, tableName); // validates the table exists
-        Path dataFile = databasePath.resolve(tableName).resolve("data.dat");
+        Path dataFile = resolveDataFile(databaseName, tableName, databasePath.resolve(tableName));
 
         int rowsAffected;
         if (rest.isEmpty()) {
@@ -284,6 +356,7 @@ public class SqlEngine {
         request.setColumns(columns);
 
         Path databasePath = databaseEngine.getDatabasePath(databaseName);
+        implicitlyCommitBeforeDdl(databaseName, databasePath); // DDL implicitly commits an open transaction, same as MySQL
         tableService.createTable(databasePath, request);
         return Map.of("message", "Table created successfully", "database", databaseName, "table", tableName);
     }
@@ -295,8 +368,16 @@ public class SqlEngine {
         }
         String tableName = matcher.group(1);
         Path databasePath = databaseEngine.getDatabasePath(databaseName);
+        implicitlyCommitBeforeDdl(databaseName, databasePath);
         tableService.deleteTable(databasePath, tableName);
         return Map.of("message", "Table deleted successfully", "database", databaseName, "table", tableName);
+    }
+
+    /** DDL (CREATE/DROP/ALTER TABLE) implicitly commits whatever transaction is currently open for this database before running -- same as real MySQL, which never lets DDL participate in a transaction. */
+    private void implicitlyCommitBeforeDdl(String databaseName, Path databasePath) throws IOException {
+        if (transactionManager.hasActive(databaseName)) {
+            transactionManager.commitActive(databaseName, databasePath);
+        }
     }
 
     /**
@@ -307,6 +388,7 @@ public class SqlEngine {
      */
     private Map<String, Object> executeAlterTable(String databaseName, String query) throws IOException {
         Path databasePath = databaseEngine.getDatabasePath(databaseName);
+        implicitlyCommitBeforeDdl(databaseName, databasePath);
 
         Matcher add = ALTER_ADD_PATTERN.matcher(query);
         if (add.matches()) {

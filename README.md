@@ -174,6 +174,13 @@ Example row insert:
 
 ### Transaction endpoints (commit / rollback)
 
+MiniDB has two independent ways to stage changes and commit or roll them
+back — pick whichever fits what you're doing. Both share the same
+underlying atomic-swap mechanism (`TransactionManager`); they just differ
+in how you tell the server what's "in" the transaction.
+
+**1. Explicit, per-request — the row-editing UI's staged edits use this.**
+
 ```http
 POST /api/databases/{databaseName}/tables/{tableName}/transactions
 GET /api/databases/{databaseName}/tables/{tableName}/transactions/{transactionId}
@@ -190,8 +197,39 @@ POST /api/databases/college/tables/students/rows?transactionId=<id>
 
 Those requests only touch a private staging copy of the table's data —
 nothing changes in the live table until you `commit`. `rollback` discards
-the staging copy instead, leaving the live table exactly as it was. See
-`TransactionManager` for how staging and the atomic commit swap work.
+the staging copy instead, leaving the live table exactly as it was. You
+carry the `transactionId` around yourself on every request.
+
+**2. Implicit, MySQL-style — plain SQL text, no id to carry.**
+
+```http
+POST /api/databases/college/query
+{ "query": "BEGIN" }
+{ "query": "UPDATE students SET age = 23 WHERE id = 1" }
+{ "query": "INSERT INTO students (id, name, age, department) VALUES (9, 'Zoe', 21, 'ECE')" }
+{ "query": "COMMIT" }
+```
+
+`BEGIN` (or `START TRANSACTION`) opens a transaction for that database and
+remembers it as *the* current one — there's only one active per database,
+same as one MySQL client session. Every statement you run against that
+database (`SELECT`, `INSERT`, `UPDATE`, `DELETE`) automatically joins it
+until you `COMMIT` or `ROLLBACK`, and — unlike option 1 — this one can span
+**multiple tables** in the same transaction. A `SELECT` run while the
+transaction is open sees your own uncommitted writes (real "read your own
+writes" semantics), even though nothing is visible outside the transaction
+yet. `COMMIT`/`ROLLBACK` with nothing open is a harmless no-op, exactly
+like real MySQL. Running `CREATE`/`DROP`/`ALTER TABLE` while a transaction
+is open implicitly commits it first — DDL never participates in a
+transaction in MySQL, so we don't let it here either. A trailing `;` is
+optional and stripped automatically (`"BEGIN;"` and `"BEGIN"` are the
+same statement).
+
+Known, stated limitation either way: committing several tables in one
+transaction is **not** atomic *across* those tables — each table's swap is
+its own atomic file move, applied one after another. If the third of five
+swaps fails, the first two are already committed. Fine for a single-user
+learning console; not a substitute for real multi-table ACID commit.
 
 ### Filter example
 
@@ -211,10 +249,11 @@ Supported operators:
 ### Query console
 
 The query console runs full SQL-text statements — not just `SELECT` — routed
-to the same services the structured REST endpoints use. Every statement
-here executes immediately against the live data (autocommit-style, no
-staged/review step); use the row-editing UI or `TransactionController`
-directly if you want to stage changes first.
+to the same services the structured REST endpoints use. By default,
+statements execute immediately against the live data (autocommit-style);
+run `BEGIN` first (see "Transaction endpoints" above) if you want to stage
+several statements — across one or more tables — and commit or roll them
+back together.
 
 Scoped to one database — `POST /api/databases/{databaseName}/query`:
 
@@ -230,6 +269,9 @@ POST /api/databases/college/query
 { "query": "ALTER TABLE staff DROP COLUMN email" }
 { "query": "ALTER TABLE staff RENAME COLUMN email TO contact_email" }
 { "query": "ALTER TABLE staff MODIFY COLUMN age DOUBLE" }
+{ "query": "BEGIN" }
+{ "query": "COMMIT" }
+{ "query": "ROLLBACK" }
 ```
 
 Not scoped to any existing database — `POST /api/query`:

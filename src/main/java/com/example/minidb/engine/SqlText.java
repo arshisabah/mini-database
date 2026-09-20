@@ -13,8 +13,22 @@ public final class SqlText {
     private SqlText() {
     }
 
+    /**
+     * Trims, collapses internal whitespace runs to single spaces, and drops
+     * one trailing statement-terminating semicolon if present -- so typing
+     * "BEGIN;" or "SELECT * FROM students;" out of MySQL habit works the
+     * same as leaving it off. Safe to do unconditionally: this project
+     * doesn't support multiple statements in one call, so a lone trailing
+     * `;` can only ever be a terminator, never content -- a semicolon
+     * inside a quoted value is never the last character of the whole
+     * query, because the closing quote (or paren) comes after it.
+     */
     public static String collapseWhitespace(String text) {
-        return text.trim().replaceAll("\\s+", " ");
+        String trimmed = text.trim().replaceAll("\\s+", " ");
+        if (trimmed.endsWith(";")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1).trim();
+        }
+        return trimmed;
     }
 
     /**

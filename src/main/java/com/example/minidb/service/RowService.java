@@ -106,8 +106,9 @@ public class RowService {
         return recordStorage.filterRows(dataFile, column, operator, value);
     }
 
+    /** Unused by any controller (QueryController goes through SqlEngine instead) -- kept only as a thin, correct wrapper in case something external still calls it. */
     public List<Map<String, Object>> query(Path tablePath, String tableName, String query) throws IOException {
-        return queryEngine.parseSelectQuery(tablePath, tableName, query);
+        return queryEngine.parseSelectQuery(tablePath.resolve("data.dat"), tableName, query);
     }
 
     private void checkPrimaryKeyDuplication(Path dataFile, Map<String, Object> row, Table table) throws IOException {

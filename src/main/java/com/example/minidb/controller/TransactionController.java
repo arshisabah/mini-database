@@ -19,7 +19,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Real, server-side commit/rollback for a table's rows.
+ * Real, server-side commit/rollback for a table's rows, reached by an
+ * explicit transaction id the caller carries around itself (this is what
+ * the row-editing UI's staged Commit/Rollback buttons use). For MySQL-style
+ * BEGIN/COMMIT/ROLLBACK as plain SQL text -- no id to carry, and able to
+ * span several tables in one transaction -- see SqlEngine instead; both
+ * routes share the same TransactionManager underneath.
  *
  * Workflow:
  *   1. POST   .../transactions                 -> { "transactionId": "..." }
@@ -58,9 +63,8 @@ public class TransactionController {
                                                        @PathVariable String tableName) throws IOException {
         Path databasePath = databaseEngine.getDatabasePath(databaseName);
         tableEngine.getTable(databasePath, tableName); // validates the table exists
-        Path tablePath = databasePath.resolve(tableName);
 
-        Transaction transaction = transactionManager.begin(databaseName, tableName, tablePath);
+        Transaction transaction = transactionManager.begin(databaseName);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
                 "transactionId", transaction.getId(),
                 "databaseName", databaseName,
@@ -73,13 +77,16 @@ public class TransactionController {
     public Map<String, Object> status(@PathVariable String databaseName,
                                        @PathVariable String tableName,
                                        @PathVariable String transactionId) throws IOException {
-        Transaction transaction = transactionManager.get(databaseName, tableName, transactionId);
-        List<Map<String, Object>> stagedRows = rowService.getRows(transaction.getWorkingFile());
+        Transaction transaction = transactionManager.get(databaseName, transactionId);
+        Path tablePath = databaseEngine.getDatabasePath(databaseName).resolve(tableName);
+        Path dataFile = transactionManager.resolveDataFile(databaseName, tableName, tablePath, transactionId);
+        List<Map<String, Object>> stagedRows = rowService.getRows(dataFile);
         return Map.of(
                 "transactionId", transaction.getId(),
                 "databaseName", databaseName,
                 "tableName", tableName,
                 "createdAt", transaction.getCreatedAt().toString(),
+                "tablesTouched", transaction.workingFiles().keySet(),
                 "stagedRowCount", stagedRows.size()
         );
     }
@@ -89,8 +96,7 @@ public class TransactionController {
                                        @PathVariable String tableName,
                                        @PathVariable String transactionId) throws IOException {
         Path databasePath = databaseEngine.getDatabasePath(databaseName);
-        Path tablePath = databasePath.resolve(tableName);
-        transactionManager.commit(databaseName, tableName, tablePath, transactionId);
+        transactionManager.commit(databaseName, databasePath, transactionId);
         return Map.of("message", "Transaction committed.", "transactionId", transactionId);
     }
 
@@ -98,7 +104,7 @@ public class TransactionController {
     public Map<String, Object> rollback(@PathVariable String databaseName,
                                          @PathVariable String tableName,
                                          @PathVariable String transactionId) throws IOException {
-        transactionManager.rollback(databaseName, tableName, transactionId);
+        transactionManager.rollback(databaseName, transactionId);
         return Map.of("message", "Transaction rolled back. The live data was never touched.", "transactionId", transactionId);
     }
 }

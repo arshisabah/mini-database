@@ -1,42 +1,42 @@
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\config\CorsConfig.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\config\StorageConfig.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\controller\DatabaseController.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\controller\GlobalQueryController.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\controller\QueryController.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\controller\RowController.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\controller\TableController.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\controller\TransactionController.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\dto\AlterTableRequest.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\dto\ColumnRequest.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\dto\CreateDatabaseRequest.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\dto\CreateTableRequest.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\dto\QueryRequest.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\engine\DatabaseEngine.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\engine\QueryEngine.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\engine\SqlEngine.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\engine\SqlText.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\engine\SqlValueParser.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\engine\TableEngine.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\engine\WhereCondition.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\enums\AlterOperation.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\enums\DataType.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\exception\DatabaseNotFoundException.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\exception\DuplicateKeyException.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\exception\GlobalExceptionHandler.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\exception\RecordNotFoundException.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\exception\TableNotFoundException.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\exception\TransactionNotFoundException.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\MiniDbApplication.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\model\Column.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\model\Database.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\model\Table.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\service\DatabaseService.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\service\RowService.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\service\TableService.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\storage\DatabaseStorage.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\storage\FileStorage.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\storage\RecordStorage.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\storage\TableStorage.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\transaction\Transaction.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\transaction\TransactionManager.java
-C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database\Mini-Database\src\main\java\com\example\minidb\validator\DataValidator.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\config\CorsConfig.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\config\StorageConfig.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\controller\DatabaseController.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\controller\GlobalQueryController.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\controller\QueryController.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\controller\RowController.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\controller\TableController.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\controller\TransactionController.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\dto\AlterTableRequest.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\dto\ColumnRequest.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\dto\CreateDatabaseRequest.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\dto\CreateTableRequest.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\dto\QueryRequest.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\engine\DatabaseEngine.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\engine\QueryEngine.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\engine\SqlEngine.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\engine\SqlText.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\engine\SqlValueParser.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\engine\TableEngine.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\engine\WhereCondition.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\enums\AlterOperation.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\enums\DataType.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\exception\DatabaseNotFoundException.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\exception\DuplicateKeyException.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\exception\GlobalExceptionHandler.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\exception\RecordNotFoundException.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\exception\TableNotFoundException.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\exception\TransactionNotFoundException.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\MiniDbApplication.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\model\Column.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\model\Database.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\model\Table.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\service\DatabaseService.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\service\RowService.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\service\TableService.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\storage\DatabaseStorage.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\storage\FileStorage.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\storage\RecordStorage.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\storage\TableStorage.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\transaction\Transaction.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\transaction\TransactionManager.java
+C:\Users\arshi.sabah.I-EXCEED\Downloads\Mini-Database (1)\Mini-Database\src\main\java\com\example\minidb\validator\DataValidator.java

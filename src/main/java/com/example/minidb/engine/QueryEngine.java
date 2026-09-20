@@ -32,10 +32,6 @@ public class QueryEngine {
         this.recordStorage = recordStorage;
     }
 
-    public List<Map<String, Object>> selectAll(Path tablePath) throws IOException {
-        return recordStorage.readRows(tablePath.resolve("data.dat"));
-    }
-
     /**
      * Parses a small "SELECT * FROM <table> [WHERE <col> <op> <value>]"
      * query, written the way you'd write it in MySQL: standard comparison
@@ -46,15 +42,17 @@ public class QueryEngine {
      * (case-insensitively) against the table the caller resolved from the
      * URL, so this works for any table, not just "students".
      *
-     * The query console always reads the table's live data.dat, never a
-     * transaction's staging file, so uncommitted changes never show up here
-     * and committed ones always do as soon as they land.
+     * Reads {@code dataFile} exactly as given -- the caller decides whether
+     * that's the table's live data.dat or a transaction's working copy (see
+     * SqlEngine, which makes SELECT transaction-aware for an open
+     * BEGIN/COMMIT/ROLLBACK session: a SELECT run inside your own open
+     * transaction sees your own uncommitted writes, same as MySQL).
      *
      * Only a single condition is supported -- no AND/OR, no nested clauses,
      * no joins. That's a deliberate scope limit of this teaching project,
      * not a bug.
      */
-    public List<Map<String, Object>> parseSelectQuery(Path tablePath, String tableName, String query) throws IOException {
+    public List<Map<String, Object>> parseSelectQuery(Path dataFile, String tableName, String query) throws IOException {
         if (query == null || query.isBlank()) {
             throw new IllegalArgumentException("Query cannot be empty.");
         }
@@ -78,7 +76,6 @@ public class QueryEngine {
             throw new IllegalArgumentException("Query references unknown table '" + queriedTable + "'.");
         }
 
-        Path dataFile = tablePath.resolve("data.dat");
         if (whereClause == null) {
             return recordStorage.readRows(dataFile);
         }
